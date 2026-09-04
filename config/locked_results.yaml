@@ -1,0 +1,37 @@
+experiment_001:
+  mom_5d_ic: {expected: -0.0124, tolerance: 0.005}
+  mom_20d_ic: {expected: -0.0031, tolerance: 0.005}
+  mom_60d_ic: {expected: 0.0541, tolerance: 0.005}
+  mom_252d_ic: {expected: 0.0382, tolerance: 0.005}
+  mom_12_1_ic: {expected: 0.0498, tolerance: 0.005}
+  sector_relative_60d_ic: {expected: 0.0612, tolerance: 0.005}
+  sector_relative_252d_ic: {expected: 0.0415, tolerance: 0.005}
+  val_sector_rel_60d_ic: {expected: 0.0528, tolerance: 0.005}
+
+experiment_002:
+  eps_growth_ic: {expected: 0.0215, tolerance: 0.005}
+  profit_growth_ic: {expected: 0.0201, tolerance: 0.005}
+  revenue_growth_ic: {expected: 0.0112, tolerance: 0.005}
+  eps_accel_ic: {expected: 0.0584, tolerance: 0.005}
+  profit_accel_ic: {expected: 0.0542, tolerance: 0.005}
+  revenue_accel_ic: {expected: 0.0289, tolerance: 0.005}
+
+experiment_003:
+  mom_ic: {expected: 0.0612, tolerance: 0.005}
+  eps_accel_ic: {expected: 0.0584, tolerance: 0.005}
+  basescore_ic: {expected: 0.0915, tolerance: 0.005}
+  basescore_hac_t: {expected: 3.61, tolerance: 0.3}
+  val_basescore_ic: {expected: 0.0802, tolerance: 0.01}
+  mom_eps_corr: {expected: 0.08, tolerance: 0.03}
+
+experiment_004A:
+  roe_ic: {expected: 0.0542, tolerance: 0.005}
+  roa_ic: {expected: 0.0478, tolerance: 0.005}
+  fcf_margin_ic: {expected: 0.0435, tolerance: 0.005}
+  model_a_ic: {expected: 0.0612, tolerance: 0.005}
+  model_b_ic: {expected: 0.0481, tolerance: 0.005}
+  model_c_ic: {expected: 0.0915, tolerance: 0.005}
+  model_d1_ic: {expected: 0.0983, tolerance: 0.005}
+  model_d2_ic: {expected: 0.0950, tolerance: 0.005}
+  roe_delta_ic: {expected: 0.0068, tolerance: 0.0015}
+  roe_delta_hac_t: {expected: 2.296, tolerance: 0.25}

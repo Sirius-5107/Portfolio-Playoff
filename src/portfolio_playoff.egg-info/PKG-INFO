@@ -1,0 +1,12 @@
+Metadata-Version: 2.4
+Name: portfolio_playoff
+Version: 1.0.0
+Summary: Reproducible Quantitative Research Pipeline: Experiments 001-004A
+Author: IIT Bombay Quantitative Research Team
+Requires-Python: >=3.10
+Requires-Dist: numpy>=1.24.0
+Requires-Dist: pandas>=2.0.0
+Requires-Dist: scipy>=1.10.0
+Requires-Dist: statsmodels>=0.14.0
+Requires-Dist: pyyaml>=6.0
+Requires-Dist: pytest>=7.0.0

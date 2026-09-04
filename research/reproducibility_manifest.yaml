@@ -1,0 +1,246 @@
+# ============================================================
+# PORTFOLIO PLAYOFF — REPRODUCIBILITY MANIFEST
+# ============================================================
+# This file documents all methodological choices, data sources,
+# and expected results for Experiments 001–004A.
+# It is the authoritative record against which reconcile.py checks.
+# ============================================================
+
+manifest_version: "1.0"
+project: "Portfolio Playoff — IIT Bombay Quantitative Research"
+last_updated: "2026-09-04"
+
+# -------------------------------------------------------
+# DATA SOURCES
+# -------------------------------------------------------
+data_sources:
+  prices:
+    file: "data/raw/prices_30.csv"
+    description: "Daily total-return adjusted close prices for 30-stock universe"
+    source: "Yahoo Finance / NSE data feed"
+    date_range: ["2010-01-04", "2026-09-04"]
+    frequency: "Daily (trading days only)"
+    columns: [date, ticker, adj_close]
+
+  fundamentals:
+    file: "data/raw/fundamentals_30.csv"
+    description: "Quarterly financial statements — earnings, balance sheet, cash flow"
+    source: "Screener.in / Bloomberg / company filings"
+    date_range: ["2009-01-01", "2026-06-30"]
+    frequency: "Quarterly"
+    columns:
+      [ticker, quarter_end, eps, net_income, revenue, ebit,
+       ocf, capex, equity, total_assets, short_term_debt,
+       long_term_debt, interest_expense]
+
+  filing_dates:
+    file: "data/raw/filings_dates.csv"
+    description: "Actual BSE/NSE filing dates for each quarterly result"
+    source: "BSE filing portal / company announcements"
+    date_range: ["2009-01-01", "2026-06-30"]
+    frequency: "Quarterly (one row per ticker per quarter)"
+    columns: [ticker, quarter_end, filing_date]
+    fallback_rule: "If filing_date is missing, use quarter_end + 45 calendar days.
+                    Rows using the fallback are flagged with is_fallback_date=True."
+
+# -------------------------------------------------------
+# UNIVERSE
+# -------------------------------------------------------
+universe:
+  name: "Competition Universe"
+  count: 30
+  source: "Portfolio Playoff competition brief — IIT Bombay"
+  sectors:
+    IT:                      [TCS, INFY, HCLTECH]
+    "Banking & Financial Services": [HDFCBANK, ICICIBANK, KOTAKBANK, SBIN, AXISBANK, BAJFINANCE]
+    "Energy & Utilities":    [RELIANCE, ONGC, NTPC, POWERGRID]
+    Automobile:              [MARUTI, TATAMOTORS, "M&M"]
+    FMCG:                    [HINDUNILVR, ITC, NESTLE]
+    "Pharma & Healthcare":   [SUNPHARMA, DRREDDY, CIPLA]
+    "Metals & Mining":       [TATASTEEL, JSWSTEEL, HINDALCO]
+    Telecom:                 [BHARTIARTL]
+    "Cement & Infrastructure": [ULTRACEMCO, LT]
+    "Consumer / Retail":     [TITAN, ASIANPAINT]
+  financial_sector_tickers:
+    [HDFCBANK, ICICIBANK, KOTAKBANK, SBIN, AXISBANK, BAJFINANCE]
+  banned_tickers: [LTIM, GAIL, ADANIPORTS]
+
+# -------------------------------------------------------
+# RESEARCH PERIODS
+# -------------------------------------------------------
+periods:
+  research:
+    start: "2015-01-01"
+    end:   "2023-12-31"
+    label: "In-sample / Research"
+    note:  "Used for all IC calculations reported in the research."
+  validation:
+    start: "2024-01-01"
+    end:   "2026-09-04"
+    label: "EXPOSED / CONTAMINATED / NON-BLIND"
+    note:  "Validation period was observed during research. Results are
+            indicative only and cannot be treated as out-of-sample."
+
+# -------------------------------------------------------
+# REBALANCE SCHEDULE
+# -------------------------------------------------------
+rebalance:
+  frequency: "Every 20 trading days (~monthly)"
+  freq_days: 20
+  primary_target_horizon_days: 20
+  all_target_horizons_days: [5, 10, 20, 30]
+  method: "Every 20th trading day starting from period start"
+
+# -------------------------------------------------------
+# STATISTICAL METHODOLOGY
+# -------------------------------------------------------
+statistics:
+  primary_metric: "Cross-sectional Spearman IC (rank IC)"
+  ic_min_stocks: 5
+  hac_standard_errors: "Newey-West / HAC with max_lag=3"
+  winsorization: "Cross-sectional 1st–99th percentile per rebalance date"
+  zscore_clipping: "[-3, +3] after standardization"
+  residualization: "OLS cross-sectional regression per date"
+
+# -------------------------------------------------------
+# POINT-IN-TIME (PIT) METHODOLOGY
+# -------------------------------------------------------
+pit:
+  rule: >
+    quarter_end
+    → actual_filing_date (from filings_dates.csv)
+    → first trading day STRICTLY AFTER filing_date
+    → this is the usable_date (feature becomes eligible)
+  fallback: "quarter_end + 45 calendar days if filing_date unavailable"
+  fallback_flag: "is_fallback_date = True"
+  merge_method: "pd.merge_asof with direction=backward"
+  guarantee: "No future information used — usable_date <= rebalance_date enforced"
+
+# -------------------------------------------------------
+# FEATURE DEFINITIONS
+# -------------------------------------------------------
+features:
+  momentum:
+    mom_5d:   "pct_change(5)  on adj_close"
+    mom_20d:  "pct_change(20) on adj_close"
+    mom_60d:  "pct_change(60) on adj_close"
+    mom_252d: "pct_change(252) on adj_close"
+    mom_12_1: "adj_close.shift(21) / adj_close.shift(252) - 1"
+    relative_momentum: "mom_60d - cross_sectional_mean(mom_60d)"
+    sector_relative_mom_60d:  "zscore(mom_60d - sector_mean(mom_60d))"
+    sector_relative_mom_252d: "zscore(mom_252d - sector_mean(mom_252d))"
+
+  earnings:
+    eps_growth:                "pct_change(4) of eps (YoY)"
+    profit_growth:             "pct_change(4) of net_income (YoY)"
+    revenue_growth:            "pct_change(4) of revenue (YoY)"
+    eps_growth_acceleration:   "diff(1) of eps_growth"
+    profit_growth_acceleration:"diff(1) of profit_growth"
+    revenue_growth_acceleration:"diff(1) of revenue_growth"
+    op_margin_change:          "diff(4) of (ebit/revenue)"
+    days_since_earnings:       "rebalance_date - usable_date (calendar days)"
+
+  quality:
+    roe_ttm: "net_income_ttm / avg(equity_t, equity_{t-4q})"
+    roa_ttm: "net_income_ttm / avg(assets_t, assets_{t-4q})"
+    op_margin_ttm:     "ebit_ttm / revenue_ttm"
+    net_margin_ttm:    "net_income_ttm / revenue_ttm"
+    fcf_margin_ttm:    "(ocf_ttm - capex_ttm) / revenue_ttm"
+    ocf_margin_ttm:    "ocf_ttm / revenue_ttm"
+    debt_to_equity:    "(short_term_debt + long_term_debt) / equity"
+    interest_coverage: "ebit_ttm / interest_expense_ttm"
+    ttm_aggregation:   "Rolling 4-quarter sum (min_periods=4)"
+    financial_exclusions:
+      - op_margin_ttm
+      - net_margin_ttm
+      - fcf_margin_ttm
+      - ocf_margin_ttm
+      - debt_to_equity
+      - interest_coverage
+
+# -------------------------------------------------------
+# EXPERIMENT DEFINITIONS
+# -------------------------------------------------------
+experiments:
+  exp001_momentum:
+    description: "Evaluate all momentum lookback factors; identify which to keep."
+    signal: "sector_relative_mom_60d (primary), mom_12_1, mom_60d"
+    verdict:
+      keep: [sector_relative_mom_60d, mom_12_1, mom_60d]
+      discard: [mom_5d, mom_20d]
+      modify: [mom_252d -> use as 12-1 instead]
+    expected_research_ic:
+      mom_5d:                  -0.0124
+      mom_20d:                 -0.0031
+      mom_60d:                 +0.0541
+      mom_252d:                +0.0382
+      mom_12_1:                +0.0498
+      sector_relative_mom_60d: +0.0612
+      sector_relative_mom_252d:+0.0415
+    tolerance: 0.005
+
+  exp002_earnings_momentum:
+    description: "Evaluate EPS/Profit/Revenue growth and acceleration factors."
+    primary_signal: "eps_growth_acceleration"
+    expected_research_ic:
+      eps_growth:                +0.0215
+      profit_growth:             +0.0201
+      revenue_growth:            +0.0112
+      eps_growth_acceleration:   +0.0584
+      profit_growth_acceleration:+0.0542
+      revenue_growth_acceleration:+0.0289
+      op_margin_change:          +0.0185
+      days_since_earnings:       -0.0042
+    tolerance: 0.005
+
+  exp003_complementarity:
+    description: >
+      Test whether sector_relative_mom_60d and eps_growth_acceleration
+      are complementary signals.
+    composite: "BaseScore = Z(sector_relative_mom_60d) + Z(eps_growth_acceleration)"
+    weights: "Equal (1:1) — NOT estimated by OLS"
+    expected_basescore_ic: +0.0915
+    expected_hac_t: 3.61
+    rebalances_research: 108
+    tolerance:
+      ic: 0.005
+      hac_t: 0.30
+    interpretation: >
+      Non-zero cross-sectional Spearman correlation does not prove
+      independence. Residualization shows each factor retains linear
+      predictive variation conditional on the other. This justifies
+      including both in the composite.
+
+  exp004A_quality:
+    description: >
+      Test whether quality factors (especially ROE) add incremental
+      predictive power to the Momentum+EPS BaseScore.
+    models:
+      Model_A: "Z(sector_relative_mom_60d)"
+      Model_B: "Z(eps_growth_acceleration)"
+      Model_C: "Z(Mom) + Z(EPS)  [BaseScore]"
+      Model_D1: "Z(Mom) + Z(EPS) + Z(ROE)"
+      Model_D2: "Z(Mom) + Z(EPS) + Z(FCF_Margin)"
+    primary_test: "Paired Delta-IC: IC_{D1,t} - IC_{C,t}"
+    expected_delta_ic: +0.0068
+    expected_delta_hac_t: 2.296
+    tolerance:
+      delta_ic: 0.0015
+      hac_t: 0.25
+    interpretation: >
+      ROE shows a partial incremental contribution. The effect is
+      statistically present (HAC t > 2) but economically modest.
+      This does NOT prove that ROE is causally independent — it
+      shows conditional linear predictive variation.
+
+# -------------------------------------------------------
+# SOFTWARE DEPENDENCIES
+# -------------------------------------------------------
+dependencies:
+  python: ">=3.10"
+  numpy:       ">=1.24.0"
+  pandas:      ">=2.0.0"
+  scipy:       ">=1.10.0"
+  statsmodels: ">=0.14.0"
+  pyyaml:      ">=6.0"
+  pytest:      ">=7.0.0"

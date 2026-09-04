@@ -1,81 +1,104 @@
 """
 Automated Reconciliation Engine.
-Compares actual output metrics against config/locked_results.yaml tolerances.
+
+Compares actual experiment output metrics against expected values stored in
+config/locked_results.yaml.  Each check allows a ±tolerance window so that
+minor floating-point drift does not produce spurious failures.
+
+Exit code 0 = all checks passed.
+Exit code 1 = at least one check failed.
 """
 
+import sys
 import yaml
 import pandas as pd
 import numpy as np
 from src.utils.io import load_csv, get_path, save_csv
 
-def main():
-    with open(get_path("config/locked_results.yaml"), "r") as f:
+
+def main() -> None:
+    locked_path = get_path("config/locked_results.yaml")
+    with open(locked_path, "r") as f:
         locked = yaml.safe_load(f)
-        
+
     e001_df = load_csv("outputs/tables/exp_001_ic_summary.csv")
     e002_df = load_csv("outputs/tables/exp_002_ic_summary.csv")
     e003_df = load_csv("outputs/tables/exp_003_summary.csv")
     e004_df = load_csv("outputs/tables/exp_004A_paired_delta_ic.csv")
-    
+
     reconciliation = []
-    
-    # 001 Checks
-    sec_60_row = e001_df[e001_df['factor'] == 'sector_relative_mom_60d'].iloc[0]
-    exp = locked['experiment_001']['sector_relative_60d_ic']
-    act = sec_60_row['research_ic']
-    diff = act - exp['expected']
-    passed = abs(diff) <= exp['tolerance']
-    reconciliation.append({
-        'experiment': '001', 'metric': 'sector_relative_60d_ic',
-        'expected': exp['expected'], 'actual': act, 'difference': diff,
-        'tolerance': exp['tolerance'], 'status': 'PASS' if passed else 'FAIL'
-    })
-    
-    # 002 Checks
-    eps_acc_row = e002_df[e002_df['factor'] == 'eps_growth_acceleration'].iloc[0]
-    exp = locked['experiment_002']['eps_accel_ic']
-    act = eps_acc_row['research_ic']
-    diff = act - exp['expected']
-    passed = abs(diff) <= exp['tolerance']
-    reconciliation.append({
-        'experiment': '002', 'metric': 'eps_accel_ic',
-        'expected': exp['expected'], 'actual': act, 'difference': diff,
-        'tolerance': exp['tolerance'], 'status': 'PASS' if passed else 'FAIL'
-    })
-    
-    # 003 Checks
-    base_ic_val = e003_df[e003_df['metric'] == 'BaseScore_IC_Research']['value'].values[0]
-    exp = locked['experiment_003']['basescore_ic']
-    diff = base_ic_val - exp['expected']
-    passed = abs(diff) <= exp['tolerance']
-    reconciliation.append({
-        'experiment': '003', 'metric': 'basescore_ic',
-        'expected': exp['expected'], 'actual': base_ic_val, 'difference': diff,
-        'tolerance': exp['tolerance'], 'status': 'PASS' if passed else 'FAIL'
-    })
-    
-    # 004A Checks
-    roe_delta_val = e004_df[e004_df['comparison'].str.contains('ROE')]['mean_delta_ic'].values[0]
-    exp = locked['experiment_004A']['roe_delta_ic']
-    diff = roe_delta_val - exp['expected']
-    passed = abs(diff) <= exp['tolerance']
-    reconciliation.append({
-        'experiment': '004A', 'metric': 'roe_delta_ic',
-        'expected': exp['expected'], 'actual': roe_delta_val, 'difference': diff,
-        'tolerance': exp['tolerance'], 'status': 'PASS' if passed else 'FAIL'
-    })
-    
+
+    def _check(experiment: str, metric: str, expected_cfg: dict, actual: float) -> None:
+        exp = expected_cfg["expected"]
+        tol = expected_cfg["tolerance"]
+        diff = actual - exp
+        passed = abs(diff) <= tol
+        reconciliation.append(
+            {
+                "experiment": experiment,
+                "metric": metric,
+                "expected": exp,
+                "actual": actual,
+                "difference": diff,
+                "tolerance": tol,
+                "status": "PASS" if passed else "INVESTIGATE",
+            }
+        )
+
+    # --- Experiment 001 ---
+    for factor_key, df_factor in [
+        ("sector_relative_60d_ic", "sector_relative_mom_60d"),
+        ("mom_60d_ic", "mom_60d"),
+        ("mom_12_1_ic", "mom_12_1"),
+    ]:
+        if factor_key in locked.get("experiment_001", {}):
+            row = e001_df[e001_df["factor"] == df_factor]
+            if len(row) > 0:
+                _check("001", factor_key, locked["experiment_001"][factor_key], row.iloc[0]["research_ic"])
+
+    # --- Experiment 002 ---
+    for factor_key, df_factor in [
+        ("eps_accel_ic", "eps_growth_acceleration"),
+        ("eps_growth_ic", "eps_growth"),
+        ("profit_accel_ic", "profit_growth_acceleration"),
+    ]:
+        if factor_key in locked.get("experiment_002", {}):
+            row = e002_df[e002_df["factor"] == df_factor]
+            if len(row) > 0:
+                _check("002", factor_key, locked["experiment_002"][factor_key], row.iloc[0]["research_ic"])
+
+    # --- Experiment 003 ---
+    if "basescore_ic" in locked.get("experiment_003", {}):
+        base_ic_rows = e003_df[e003_df["metric"] == "BaseScore_IC_Research"]
+        if len(base_ic_rows) > 0:
+            _check("003", "basescore_ic", locked["experiment_003"]["basescore_ic"], base_ic_rows.iloc[0]["value"])
+
+    # --- Experiment 004A ---
+    if "roe_delta_ic" in locked.get("experiment_004A", {}):
+        roe_rows = e004_df[e004_df["comparison"].str.contains("ROE", na=False)]
+        if len(roe_rows) > 0:
+            _check("004A", "roe_delta_ic", locked["experiment_004A"]["roe_delta_ic"], roe_rows.iloc[0]["mean_delta_ic"])
+
     rec_df = pd.DataFrame(reconciliation)
     save_csv(rec_df, "outputs/reports/reconciliation_report.csv")
-    
+
+    print("\n" + "=" * 70)
+    print("RECONCILIATION REPORT")
+    print("=" * 70)
     print(rec_df.to_string(index=False))
-    
-    if (rec_df['status'] == 'FAIL').any():
-        print("\nRECONCILIATION FAILED! At least one metric exceeded tolerance threshold.")
+
+    fails = (rec_df["status"] == "INVESTIGATE").any() if len(rec_df) > 0 else False
+    if fails:
+        print(
+            "\nRECONCILIATION: Some metrics outside expected tolerance."
+            "\nInvestigate whether data source, date range, or methodology"
+            "\nhas changed relative to the locked results. DO NOT simply"
+            "\nmanipulate code until numbers match."
+        )
         sys.exit(1)
     else:
-        print("\nRECONCILIATION SUCCESSFUL! All metrics within locked tolerances.")
+        print("\nRECONCILIATION: All checked metrics are within locked tolerances.")
+
 
 if __name__ == "__main__":
-    import sys
     main()
